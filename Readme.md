@@ -1,4 +1,4 @@
-# Firewall loadable kernel module (LKM) [![Awesome](https://cdn.rawgit.com/sindresorhus/awesome/d7305f38d29fed78fa85652e3a63e154dd8e8829/media/badge.svg)](https://github.com/MaryamSaeedmehr/PacketFilteringKernelModule)
+# Firewall loadable kernel module (LKM) [![Awesome](https://cdn.rawgit.com/sindresorhus/awesome/d7305f38d29fed78fa85652e3a63e154dd8e8829/media/badge.svg)](https://github.com/mahdi2019/firewall)
 
 
 ## Table of contents
@@ -73,13 +73,13 @@ $ sudo apt install linux-headers-$(uname -r)
 
 ---
 ## *A Warning!*
-It is very easy to crash the system when you are writing and testing LKMs. It is always possible that such a system crash could corrupt your file system — it is unlikely, but it is possible. Please back up your data and/or use an Virtual Machine, 
+It is very easy to crash the system when you are writing and testing LKMs. It is always possible that such a system crash could corrupt your file system — it is unlikely, but it is possible. Please back up your data and/or use an Virtual Machine,
 
 ---
 
 ## A kernel module is not an application
 Some of the key differences are that kernel modules:
-* for a start there is no main() function! 
+* for a start there is no main() function!
 * **do not execute sequentially** — a kernel module registers itself to handle requests using its initialization function, which runs and then terminates. The type of requests that it can handle are defined within the module code. This is quite similar to the event-driven programming model that is commonly utilized in graphical-user interface (GUI) applications.
 * **do not have automatic cleanup** — any resources that are allocated to the module must be manually released when the module is unloaded, or they may be unavailable until a system reboots.
 * **do not have printf() functions** — kernel code cannot access libraries of code that is written for the Linux user space. The kernel module lives and runs in kernel space, which has its own memory address space. The interface between kernel space and user space is clearly defined and controlled. We do however have a printk() function that can output information, which can be viewed from within user space.
@@ -108,7 +108,7 @@ This hooks only can use in *kernel space* and can not use in *user space*.
                        |            |
                        v            |
                     [INPUT*]    [OUTPUT*]
-                    
+
 [1]  NF_IP_PRE_ROUTING (Right after the packets have been received. )
 [2]  NF_IP_LOCAL_IN (Packets addressed to the network stack. )
 [3]  NF_IP_FORWARD (Packets that should be forwarded. )
@@ -116,7 +116,7 @@ This hooks only can use in *kernel space* and can not use in *user space*.
 [5]  NF_IP_LOCAL_OUT (Packets from our own network stack)
 [*]  Network Stack
 ```
-### Hook Decision 
+### Hook Decision
 
 * **NF_DROP** : drop the packet (don't continue trip)
 * **NF_ACCEPT** : accept the packet (continue network stack trip)
@@ -189,16 +189,18 @@ A Makefile is required to build the kernel module — in fact, it is a special k
 Makefile Required to Build the LKM
 
 ```Makefile
-obj-m+=module_name.o
+obj-m+=firewall.o
 
 all:
- make -C /lib/modules/$(shell uname -r)/build/ M=$(PWD) modules
+	make -C /lib/modules/$(shell uname -r)/build/ M=$(PWD) modules
+	$(CC) set_config.c -o test
 clean:
- make -C /lib/modules/$(shell uname -r)/build/ M=$(PWD) clean
+	make -C /lib/modules/$(shell uname -r)/build/ M=$(PWD) clean
+	rm test
  ```
- The first line of this Makefile is called a goal definition and it defines the module to be built (module_name.o).  
+ The first line of this Makefile is called a goal definition and it defines the module to be built (firewall.o).  
  The syntax is surprisingly intricate, for example ```obj-m ```defines a ```loadable module``` goal, whereas ```obj-y``` indicates a ```built-in object``` goal. The syntax becomes more complex when a module is to be built from multiple objects, but this is sufficient to build this example LKM.  
-   
+
 The reminder of the Makefile is similar to a regular Makefile.  
 The ```$(shell uname -r)``` is a useful call to return the current kernel build version — this ensures a degree of portability for the Makefile.  
 The ```-C``` option switches the directory to the kernel directory before performing any make tasks.  
@@ -212,7 +214,7 @@ An alternative target is ```modules_install``` which would install the module (t
 This module can now be loaded using the kernel module tools as follows:
 ```bash
 $ make
-$ sudo insmod module_name.ko
+$ sudo insmod firewall.ko
 ```
 
 To see list of all module :
@@ -221,11 +223,11 @@ $ lsmod
 ```
 You can get information about the module using the modinfo command, which will identify the description, author and any module parameters that are defined:
 ```bash
-$ modinfo module_name.ko
+$ modinfo firewall.ko
 ```
 ### The module can be unloaded using the rmmod command:
 ```bash
-$ sudo rmmod module_name.ko
+$ sudo rmmod firewall.ko
 ```
 You can repeat these steps and view the output in the kernel log that results from the use of the ```printk()``` function. I recommend that you use a second terminal window and view the output as your LKM is loaded and unloaded, as follows:
 ```bash
@@ -268,5 +270,3 @@ This project is licensed under the MIT License. [![License](https://img.shields.
 2. Debugging by Printing([Link](http://www.makelinux.net/ldd3/chp-4-sect-2.shtml))
 3. Debugging by printing([Link](https://elinux.org/Debugging_by_printing))  
 =========================================
-
-

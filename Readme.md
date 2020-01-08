@@ -261,7 +261,8 @@ This project is licensed under the MIT License. [![License](https://img.shields.
 
 ## Realted Link
 * Writing a Linux Kernel Module — Part 1: Introduction([Link](http://derekmolloy.ie/writing-a-linux-kernel-module-part-1-introduction/))
-* Writing a Linux Kernel Module — Part 2: A Character Device[Link](http://derekmolloy.ie/writing-a-linux-kernel-module-part-2-a-character-device/))  
+* Writing a Linux Kernel Module — Part 2: A Character Device([Link](http://derekmolloy.ie/writing-a-linux-kernel-module-part-2-a-character-device/))  
+* Character device drivers([Link](https://linux-kernel-labs.github.io/master/labs/device_drivers.html))
 * Roll Your Own Firewall with Netfilter([Link](https://www.linuxjournal.com/article/7184l))  
 * چگونه یک فایروال بنویسیم؟([Link](http://zaghaghi.blog.ir/1392/10/19/how-to-write-your-own-firewall))  
 =========================================  

@@ -6,8 +6,8 @@
  * @brief  A network loadable kernel module (LKM) that can filtering receiving packet
  *    first read config file that in 
  *       first line Specify what type of filtering -whitelist or blacklist
- *       source_ip:source_port
- * @see https://github.com/mahdi2019/ for a full description and follow-up descriptions.
+ *       then each line have foramat of : source_ip:source_port
+ * @see https://github.com/mahdi2019/firewall for a full description and follow-up descriptions.
 */
 #include <linux/device.h>         // Header to support the kernel Driver Model
 #include <linux/uaccess.h>        // Required for the copy to user function
@@ -26,6 +26,8 @@
 #include <linux/if.h>
 #include <linux/fs.h>      // Needed by filp
 #include <linux/string.h>
+#include <linux/semaphore.h>     //Provides declarations for semaphore
+#include <linux/cdev.h>
 #define  DEVICE_NAME "Mfirewall"    ///< The device will appear at /dev/Mfirewall using this value
 #define  CLASS_NAME  "fire"        ///< The device class -- this is a character device driver
 
@@ -38,6 +40,10 @@ static char *name = "ٌWorld";        ///< An example LKM argument -- default va
 module_param(name, charp, S_IRUGO); ///< Param desc. charp = char ptr, S_IRUGO can be read/not changed
 MODULE_PARM_DESC(name, "The name to display in 'journalctl -f'");  ///< parameter description
 
+static struct semaphore sem; // for time that two person want to set policy
+
+static struct timespec time;  // for get time of receiving packet to print
+
 static int    majorNumber;                   ///< Stores the device number -- determined automatically
 static char   message[256] = {0};           ///< Memory for the string that is received from userspace
 static struct class*  MfirewallClass  = NULL; ///< The device-driver class struct pointer
@@ -46,7 +52,7 @@ static struct device* MfirewallDevice = NULL; ///< The device-driver device stru
 // The prototype functions for the character driver -- must come before the struct definition
 static int  dev_Open(struct inode *, struct file *);
 static int  dev_release(struct inode *, struct file *);
-//static ssize_t dev_read(struct file *, char *, size_t, loff_t *);  // not needed
+//static ssize_t dev_read(struct file *, char *, size_t, loff_t *);  // not needed in this module
 static ssize_t dev_write(struct file *, const char *, size_t, loff_t *);
 
 /** @brief Devices are represented as file structure in the kernel. The file_operations structure from
@@ -57,22 +63,22 @@ static struct file_operations fops ={
    .open = dev_Open,
    .write = dev_write,
    .release = dev_release,
-   //   .read = dev_read,
+   //   .read = dev_read,     // not needed in this module
 };
 
 
 unsigned int icmp_hook(unsigned int hooknum, struct sk_buff *skb,const struct net_device *in, const struct net_device *out,int(*okfn)(struct sk_buff *));
 
 static struct nf_hook_ops icmp_drop __read_mostly = {
-        .pf = NFPROTO_IPV4,  // PF_INET; 
+        .pf = NFPROTO_IPV4,  // for set type of ip to hook
         .priority = NF_IP_PRI_FIRST, 
-        .hooknum =NF_INET_LOCAL_IN,  // NF_INET_LOCAL_OUT;
+        .hooknum =NF_INET_LOCAL_IN,  
         .hook = (nf_hookfn *) icmp_hook
 };
 
 int No; // 0 for whitelist & 1 for blacklist
 int list_num; // number of list
-char list[100][25];
+char list[100][25];  // limitation for list
 
 
 /** @brief The LKM initialization function
@@ -83,22 +89,22 @@ char list[100][25];
  */
 static int __init icmp_drop_init(void){
    int ret;
-
-   printk(KERN_INFO "Hello %s from the Mfirewall!\n", name);
+   sema_init( &sem, 1);  // initialized semaphore 
+   printk(KERN_INFO "Mfirewall: Hello %s from the Mfirewall!\n", name);
 
    // Try to dynamically allocate a major number for the device -- more difficult but worth it
    majorNumber = register_chrdev(0, DEVICE_NAME, &fops);
    if (majorNumber<0){
-      printk(KERN_ALERT "Mfirewall failed to register a major number\n");
+      printk(KERN_ERR "Mfirewall: failed to register a major number\n");
       return majorNumber;
    }
-   printk(KERN_INFO "registered correctly with major number %d\n", majorNumber);
+   printk(KERN_INFO "Mfirewall: registered correctly with major number %d\n", majorNumber);
 
    // Register the device class
    MfirewallClass = class_create(THIS_MODULE, CLASS_NAME);
    if (IS_ERR(MfirewallClass)){                // Check for error and clean up if there is
       unregister_chrdev(majorNumber, DEVICE_NAME);
-      printk(KERN_ALERT "Failed to register device class\n");
+      printk(KERN_ERR "Mfirewall: Failed to register device class\n");
       return PTR_ERR(MfirewallClass);          // Correct way to return an error on a pointer
    }
    printk(KERN_INFO "Mfirewall: device class registered correctly\n");
@@ -108,7 +114,7 @@ static int __init icmp_drop_init(void){
    if (IS_ERR(MfirewallDevice)){               // Clean up if there is an error
       class_destroy(MfirewallClass);           // Repeated code but the alternative is goto statements
       unregister_chrdev(majorNumber, DEVICE_NAME);
-      printk(KERN_ALERT "Failed to create the device\n");
+      printk(KERN_ERR "Mfirewall: Failed to create the device\n");
       return PTR_ERR(MfirewallDevice);
    }
    printk(KERN_INFO "Mfirewall: device class created correctly\n"); // Made it! device was initialized
@@ -132,17 +138,19 @@ static void __exit  icmp_drop_exit(void){
    class_unregister(MfirewallClass);                          // unregister the device class
    class_destroy(MfirewallClass);                             // remove the device class
    unregister_chrdev(majorNumber, DEVICE_NAME);             // unregister the major number
-   printk(KERN_INFO "Bye icmp drop module unloaded\n");
+   printk(KERN_INFO "Mfirewall: Bye %s from the Mfirewall! module unloaded\n", name);
 
    nf_unregister_net_hook(&init_net,&icmp_drop); /*UnRecord in net filtering */
 }
 
 static int dev_Open(struct inode *inodep, struct file *filep){
    printk(KERN_INFO "Mfirewall: Device has been opened \n");
+   down( &sem );  // Wait for semaphore to just one person can open character device for this module at same time
    return 0;
 }
 
 static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset){
+   int i;
    int error_count = 0;
    // unsigned long copy_from_user( void *to, const void __user *from,unsigned long n);
    error_count = copy_from_user(message, buffer, len);
@@ -151,7 +159,7 @@ static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, lof
       if(!No)
       {
          list_num=0;
-         printk(KERN_INFO "Mfirewall: policy changed to blacklist\n");
+         printk(KERN_ALERT "Mfirewall: policy changed to blacklist\n");
       }
       No = 1;
    }
@@ -160,23 +168,34 @@ static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, lof
       if(No)
       {
          list_num=0;
-         printk(KERN_INFO "Mfirewall: policy changed to whitelist\n");
+         printk(KERN_ALERT "Mfirewall: policy changed to whitelist\n");
       }
       No = 0;
    }
    else
    {
+      message[len]='\0';
+      for(i=0;i<list_num ;i++)
+      {
+         if( !strcmp(message ,list[i]))
+         {
+            printk(KERN_ALERT "Mfirewall: %s added later\n",message);
+            return len;
+         }
+      }
+
       strncpy(list[list_num++],message,len);
       if(No)
-         printk(KERN_INFO "Mfirewall: add %s to %s\n",message , "blacklist");
+         printk(KERN_ALERT "Mfirewall: add %s to %s\n",message , "blacklist");
       else
-         printk(KERN_INFO "Mfirewall: add %s to %s\n",message , "whitelist");
+         printk(KERN_ALERT "Mfirewall: add %s to %s\n",message , "whitelist");
    }
    return len;
 }
 
 static int dev_release(struct inode *inodep, struct file *filep){
    printk(KERN_INFO "Mfirewall: Device successfully closed\n");
+   up( &sem );
    return 0;
 }
 
@@ -198,18 +217,20 @@ unsigned int icmp_hook(unsigned int hooknum, struct sk_buff *skb,const struct ne
    if(!skb) 
       return NF_DROP;
 
+   getnstimeofday(&time);
+   printk(KERN_INFO "Mfirewall: received packet at time : %.2lu:%.2lu:%.2lu ", (time.tv_sec / 3600) % 24 , (time.tv_sec / 60) % 60, (time.tv_sec) % 60);
    if (ip_header->protocol==17)   // UDP
    {
       udp_header = (struct udphdr *)skb_transport_header(skb);
       src_port = (unsigned int)ntohs(udp_header->source);
-      printk(KERN_DEBUG "(UDP)IP addres = %pI4(%u)  DEST = %pI4\n", &src_ip, src_port , &dest_ip);
+      printk(KERN_DEBUG "Mfirewall: (UDP)IP addres = %pI4(%u)  DEST = %pI4\n", &src_ip, src_port , &dest_ip);
    } 
    else if (ip_header->protocol == 6)   // TCP
    { 
       tcp_header = (struct tcphdr *)skb_transport_header(skb);
       src_port = (unsigned int)ntohs(tcp_header->source);
       dest_port = (unsigned int)ntohs(tcp_header->dest);
-      printk(KERN_DEBUG "(TCP)IP addres = %pI4(%u)  DEST = %pI4\n", &src_ip, src_port , &dest_ip);
+      printk(KERN_DEBUG "Mfirewall: (TCP)IP addres = %pI4(%u)  DEST = %pI4\n", &src_ip, src_port , &dest_ip);
    }
 
    snprintf(SOurce, 25, "%pI4:%u", &ip_header->saddr, src_port); // Mind the &!
@@ -218,10 +239,10 @@ unsigned int icmp_hook(unsigned int hooknum, struct sk_buff *skb,const struct ne
       for(i=0;i<list_num ;i++)
          if( !strcmp(SOurce ,list[i]) )
          {
-            printk(KERN_DEBUG "packet drop - %s is in black list", SOurce);
+            printk(KERN_ALERT "Mfirewall: packet drop - %s is in black list", SOurce);
             return NF_DROP;
          }
-      printk(KERN_DEBUG "packet accept - %s isn't in black list", SOurce);
+      printk(KERN_DEBUG "Mfirewall: packet accept - %s isn't in black list", SOurce);
       return NF_ACCEPT;
    }
    else
@@ -229,10 +250,10 @@ unsigned int icmp_hook(unsigned int hooknum, struct sk_buff *skb,const struct ne
       for(i=0;i<list_num ;i++)
          if( !strcmp(SOurce ,list[i]) )
          {
-            printk(KERN_DEBUG "packet accept - %s is in white list", SOurce);
+            printk(KERN_DEBUG "Mfirewall: packet accept - %s is in white list", SOurce);
             return NF_ACCEPT;
          }
-      printk(KERN_DEBUG "packet drop - %s isn't in white list", SOurce);
+      printk(KERN_ALERT "Mfirewall: packet drop - %s isn't in white list", SOurce);
       return NF_DROP;
    }
    return NF_ACCEPT;

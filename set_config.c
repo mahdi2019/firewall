@@ -4,7 +4,6 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
-
 int main()
 {
     int k;
@@ -35,7 +34,9 @@ int main()
     }
     while(fgets(read_from_file, 24, config_file))
     {
+        read_from_file[strlen(read_from_file)-1]='\0';
         printf("IP : %s is being sent down to the kernel\n", read_from_file);
+        sleep(1);
         int ret = write(fd, read_from_file, strlen(read_from_file));
         if (ret < 0)
         {
